@@ -1,197 +1,170 @@
-# 🔐 AuthForge — Production Java Full-Stack Auth System
+# AuthForge
 
-**Spring Boot 3.2 + React (Vite) + MySQL + Docker Compose**
+A full-stack authentication system I built to learn and implement JWT, OAuth2 and role-based access control properly — not just copy-paste from a tutorial.
 
-A production-ready, zero-config authentication system with JWT, OAuth2 (Google), RBAC, refresh token rotation, rate limiting, Flyway migrations, and a full React dashboard.
+Stack: **Spring Boot 3.2** (Java 21) · **React + Vite** · **MySQL** · **Docker Compose**
 
 ---
 
-## 🚀 Quick Start (One Command)
+## Why I built this
+
+I kept running into auth implementations that either used magic libraries that hid everything, or were too simple to be useful. I wanted to actually understand what happens between a user clicking "login" and a protected API returning data — token generation, refresh rotation, session revocation, all of it.
+
+---
+
+## What it does
+
+- signup and login with bcrypt password hashing
+- JWT access tokens (15 min) + refresh tokens (7 days) stored in MySQL
+- refresh token rotation — every time you refresh, the old token is invalidated. if someone tries to reuse a revoked token, all sessions get wiped
+- google OAuth2 login
+- role-based access control — USER, EDITOR, ADMIN, SUPERADMIN
+- rate limiting per IP on login and signup endpoints
+- audit log for all auth events
+- flyway handles all DB migrations so the schema is versioned
+- full react frontend — login, signup, dashboard, admin panel
+
+---
+
+## Running locally
 
 ```bash
-# 1. Clone your repo
-git clone https://github.com/YOUR_USERNAME/authforge.git && cd authforge
-
-# 2. Set up environment
 cp .env.example .env
-# Edit .env — at minimum set the JWT secrets:
-# openssl rand -base64 64   (run twice, paste as JWT_ACCESS_SECRET and JWT_REFRESH_SECRET)
+# open .env and set your JWT secrets (see below)
 
-# 3. Launch everything
 docker compose up --build -d
-
-# 4. Open in browser
-open http://localhost
 ```
 
-That's it. MySQL starts, Flyway runs migrations, Spring Boot starts, React is served via Nginx.
+open `http://localhost` — that's it. MySQL, backend and frontend all start together.
+
+to generate JWT secrets:
+```bash
+openssl rand -base64 64
+# run it twice, paste results as JWT_ACCESS_SECRET and JWT_REFRESH_SECRET in .env
+```
 
 ---
 
-## 📁 Project Structure
+## Project structure
 
 ```
 authforge/
-├── backend/                    # Spring Boot 3.2 (Java 21)
-│   ├── src/main/java/com/authforge/
-│   │   ├── config/             # Security, CORS, Rate limiting, AppProperties
-│   │   ├── controller/         # AuthController, UserController
-│   │   ├── dto/                # Request/Response DTOs
-│   │   ├── entity/             # User, RefreshToken, AuditLog
-│   │   ├── exception/          # GlobalExceptionHandler + custom exceptions
-│   │   ├── repository/         # Spring Data JPA repositories
-│   │   ├── security/
-│   │   │   ├── jwt/            # JwtProvider, JwtAuthenticationFilter
-│   │   │   └── oauth2/         # Google OAuth2, UserPrincipal, Handlers
-│   │   └── service/            # AuthService, RefreshTokenService, UserService, AuditService
-│   ├── src/main/resources/
-│   │   ├── application.yml     # Full config (env-var driven)
-│   │   └── db/migration/       # Flyway SQL migrations
-│   └── Dockerfile              # Multi-stage build (JDK builder → JRE runtime)
+├── backend/                 # Spring Boot
+│   └── src/main/java/com/authforge/
+│       ├── config/          # security config, CORS, rate limiting
+│       ├── controller/      # auth and user endpoints
+│       ├── entity/          # User, RefreshToken, AuditLog
+│       ├── repository/      # JPA repos
+│       ├── security/
+│       │   ├── jwt/         # token generation and filter
+│       │   └── oauth2/      # google oauth2 flow
+│       └── service/         # business logic
 │
-├── frontend/                   # React 18 + Vite + TypeScript + Tailwind
-│   ├── src/
-│   │   ├── api/                # Axios client (auto-refresh) + API calls
-│   │   ├── components/         # Layout, FormElements UI
-│   │   ├── hooks/              # useAuth hook
-│   │   ├── pages/              # Login, Signup, Dashboard, Admin, OAuth2Redirect
-│   │   ├── store/              # Zustand auth store (persisted)
-│   │   └── types/              # TypeScript interfaces
-│   ├── nginx.conf              # SPA routing + API proxy
-│   └── Dockerfile              # Multi-stage: Node builder → Nginx runtime
+├── frontend/                # React + Vite + TypeScript
+│   └── src/
+│       ├── api/             # axios client with auto token refresh
+│       ├── pages/           # login, signup, dashboard, admin
+│       ├── store/           # zustand auth store
+│       └── hooks/           # useAuth
 │
-├── docker/mysql/init.sql       # MySQL init script
-├── docker-compose.yml          # Full stack: DB + Backend + Frontend
-├── .github/workflows/ci-cd.yml # GitHub Actions: Test → Build → Docker → Deploy
-├── .env.example                # All environment variables documented
-└── .gitignore
+├── docker-compose.yml
+├── .github/workflows/       # CI/CD pipeline
+└── .env.example
 ```
 
 ---
 
-## 🔑 API Reference
+## API endpoints
 
-### Auth Endpoints (public)
+**public**
+```
+POST /api/auth/signup
+POST /api/auth/login
+POST /api/auth/refresh
+POST /api/auth/logout
+GET  /api/auth/oauth2/authorize/google
+```
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/auth/signup` | Register new user |
-| POST | `/api/auth/login` | Login, receive JWT + refresh token |
-| POST | `/api/auth/refresh` | Rotate refresh token, get new access token |
-| POST | `/api/auth/logout` | Revoke refresh token (`?allSessions=true` for all) |
-| GET  | `/api/auth/oauth2/authorize/google` | Start Google OAuth2 flow |
-
-### Protected Endpoints (require `Authorization: Bearer <token>`)
-
-| Method | Endpoint | Role Required |
-|--------|----------|--------------|
-| GET | `/api/user/profile` | Any authenticated user |
-| GET | `/api/admin/users` | ADMIN, SUPERADMIN |
-| PATCH | `/api/admin/users/{uuid}/role` | ADMIN, SUPERADMIN |
-| DELETE | `/api/admin/users/{uuid}` | SUPERADMIN only |
-
----
-
-## 🛡 Security Features
-
-| Feature | Implementation |
-|---------|---------------|
-| Password hashing | BCrypt, cost=12 |
-| JWT access tokens | HS256, 15-min TTL, issuer+audience validation |
-| Refresh tokens | Opaque (64 random bytes), 7-day TTL, stored in MySQL |
-| Token rotation | Old refresh token revoked on every use |
-| Reuse attack detection | Reuse of a revoked token revokes ALL user sessions |
-| Rate limiting | Bucket4j — 10 logins/15min, 5 signups/hr per IP |
-| Timing-safe login | bcrypt runs even when user not found |
-| RBAC | 4 roles (USER → SUPERADMIN), method-level `@PreAuthorize` |
-| Audit logging | Async DB logging for all auth events |
-| CORS | Strict origin whitelist, configurable per env |
-| Token cleanup | Scheduled job purges expired/revoked tokens hourly |
-
----
-
-## ⚙️ Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `DB_NAME` | `authforge` | MySQL database name |
-| `DB_USERNAME` | `authforge` | MySQL user |
-| `DB_PASSWORD` | `authforge_secret` | MySQL password |
-| `JWT_ACCESS_SECRET` | **required** | 64-byte base64 secret |
-| `JWT_REFRESH_SECRET` | **required** | 64-byte base64 secret (different from access) |
-| `JWT_ACCESS_EXP_MS` | `900000` | Access token TTL in ms (15 min) |
-| `JWT_REFRESH_EXP_MS` | `604800000` | Refresh token TTL in ms (7 days) |
-| `GOOGLE_CLIENT_ID` | — | From Google Cloud Console |
-| `GOOGLE_CLIENT_SECRET` | — | From Google Cloud Console |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost` | Comma-separated allowed origins |
-| `APP_PORT` | `80` | Host port to expose frontend |
-
-Generate secrets:
-```bash
-openssl rand -base64 64
+**protected** (need `Authorization: Bearer <token>`)
+```
+GET    /api/user/profile
+GET    /api/admin/users          → admin only
+PATCH  /api/admin/users/:id/role → admin only
+DELETE /api/admin/users/:id      → superadmin only
 ```
 
 ---
 
-## 🚢 CI/CD Pipeline (GitHub Actions)
+## Environment variables
 
-On every push to `main`:
-1. **Backend**: Maven test → package JAR
-2. **Frontend**: ESLint → Vite build
-3. **Docker**: Build & push images to GitHub Container Registry
-4. **Deploy**: SSH to VPS → pull images → `docker compose up`
-
-### Required GitHub Secrets
-
-| Secret | Description |
-|--------|-------------|
-| `VPS_HOST` | Your server IP or hostname |
-| `VPS_USER` | SSH username |
-| `VPS_SSH_KEY` | Private SSH key (add public key to server) |
-| `DB_*` | All database credentials |
-| `JWT_ACCESS_SECRET` | Access token signing key |
-| `JWT_REFRESH_SECRET` | Refresh token signing key |
-| `GOOGLE_CLIENT_ID/SECRET` | OAuth2 credentials |
-| `CORS_ALLOWED_ORIGINS` | Your production domain |
-| `OAUTH2_REDIRECT_URIS` | `https://yourdomain.com/oauth2/redirect` |
+| variable | default | notes |
+|----------|---------|-------|
+| `DB_NAME` | authforge | |
+| `DB_USERNAME` | authforge | |
+| `DB_PASSWORD` | authforge_secret | change this |
+| `JWT_ACCESS_SECRET` | — | required, 64 byte base64 |
+| `JWT_REFRESH_SECRET` | — | required, different from access |
+| `JWT_ACCESS_EXP_MS` | 900000 | 15 min |
+| `JWT_REFRESH_EXP_MS` | 604800000 | 7 days |
+| `GOOGLE_CLIENT_ID` | — | from google cloud console |
+| `GOOGLE_CLIENT_SECRET` | — | from google cloud console |
+| `CORS_ALLOWED_ORIGINS` | http://localhost | comma separated |
+| `APP_PORT` | 80 | |
 
 ---
 
-## 🧪 Running Tests
+## CI/CD
+
+github actions workflow runs on push to main:
+
+1. runs backend tests (uses H2 so no DB needed)
+2. builds frontend and checks for lint errors
+3. builds docker images and pushes to github container registry
+4. SSHs into the server and runs `docker compose up`
+
+you need these secrets set in your github repo settings:
+
+```
+VPS_HOST, VPS_USER, VPS_SSH_KEY
+DB_NAME, DB_USERNAME, DB_PASSWORD, DB_ROOT_PASSWORD
+JWT_ACCESS_SECRET, JWT_REFRESH_SECRET
+GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+CORS_ALLOWED_ORIGINS, OAUTH2_REDIRECT_URIS
+```
+
+---
+
+## Running tests
 
 ```bash
 cd backend
 mvn test
 ```
 
-Tests use H2 in-memory DB — no MySQL needed for testing.
+tests run against H2 in-memory so you don't need MySQL running locally.
 
 ---
 
-## 🔧 Local Development (without Docker)
+## local dev without docker
 
 ```bash
-# Backend
+# backend
 cd backend
-cp src/test/resources/application.yml src/main/resources/application-dev.yml
-# Edit application-dev.yml with your local MySQL details
-mvn spring-boot:run -Dspring-boot.run.profiles=dev
+mvn spring-boot:run
 
-# Frontend
+# frontend (separate terminal)
 cd frontend
 npm install
-npm run dev   # http://localhost:5173 — proxies /api to localhost:8080
+npm run dev
+# runs on localhost:5173, proxies /api to localhost:8080
 ```
 
 ---
 
-## 📋 Production Checklist
+## things I'd add next
 
-- [ ] Set strong `JWT_ACCESS_SECRET` and `JWT_REFRESH_SECRET` (64+ bytes)
-- [ ] Change all default DB passwords
-- [ ] Set up HTTPS (add an Nginx reverse proxy or use Cloudflare)
-- [ ] Configure `CORS_ALLOWED_ORIGINS` to your actual domain
-- [ ] Register Google OAuth2 credentials with your production redirect URI
-- [ ] Remove exposed DB port (`3306`) from `docker-compose.yml`
-- [ ] Set up log rotation and monitoring (e.g. Grafana + Loki)
-- [ ] Enable MySQL backups
+- email verification on signup
+- MFA with TOTP
+- password reset flow
+- more OAuth providers (github at least)
+- move rate limit counters to Redis so it works across multiple instances
