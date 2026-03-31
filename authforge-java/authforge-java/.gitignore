@@ -1,0 +1,32 @@
+# ── Environment ───────────────────────────────────────────
+.env
+.env.local
+.env.production
+
+# ── Java / Maven ──────────────────────────────────────────
+backend/target/
+backend/.mvn/
+*.class
+*.jar
+*.war
+hs_err_pid*
+
+# ── Node / Frontend ───────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ── IDEs ──────────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ── Docker ────────────────────────────────────────────────
+docker/mysql/data/
+
+# ── Logs ──────────────────────────────────────────────────
+*.log
+logs/
